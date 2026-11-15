@@ -1,0 +1,212 @@
+diff --git a/src/gallium/drivers/zink/zink_kopper.c b/src/gallium/drivers/zink/zink_kopper.c
+index 6920ed7..8406757 100644
+--- a/src/gallium/drivers/zink/zink_kopper.c
++++ b/src/gallium/drivers/zink/zink_kopper.c
+@@ -361,6 +361,16 @@ kopper_CreateSwapchain(struct zink_screen *screen, struct kopper_displaytarget *
+ 
+    error = VKSCR(CreateSwapchainKHR)(screen->dev, &cswap->scci, NULL,
+                                 &cswap->swapchain);
++   if (error == VK_ERROR_FORMAT_NOT_SUPPORTED) {
++      cswap->scci.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
++      cswap->scci.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
++      cswap->scci.flags &= ~VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR;
++      cswap->scci.pNext = NULL;
++      cdt->formats[0] = VK_FORMAT_B8G8R8A8_UNORM;
++      cdt->formats[1] = 0;
++      error = VKSCR(CreateSwapchainKHR)(screen->dev, &cswap->scci, NULL,
++                                   &cswap->swapchain);
++   }
+    if (error == VK_ERROR_NATIVE_WINDOW_IN_USE_KHR) {
+       if (cdt->async)
+          util_queue_finish(&screen->flush_queue);
+@@ -637,6 +647,11 @@ kopper_acquire(struct zink_screen *screen, struct zink_resource *res, uint64_t t
+             return error;
+          res->obj->new_dt = false;
+          reset_swapchain_state(res);
++         if (cdt->formats[0] == VK_FORMAT_B8G8R8A8_UNORM &&
++             res->base.b.format != PIPE_FORMAT_B8G8R8A8_UNORM) {
++            res->base.b.format = PIPE_FORMAT_B8G8R8A8_UNORM;
++            res->internal_format = PIPE_FORMAT_B8G8R8A8_UNORM;
++         }
+       }
+       if (timeout == UINT64_MAX &&
+           kopper_held_images(cdt->swapchain) >= cdt->swapchain->max_acquires) {
+diff --git a/src/gallium/drivers/zink/zink_screen.c b/src/gallium/drivers/zink/zink_screen.c
+index a58378b..0b88a24 100644
+--- a/src/gallium/drivers/zink/zink_screen.c
++++ b/src/gallium/drivers/zink/zink_screen.c
+@@ -1413,6 +1413,9 @@ zink_is_format_supported(struct pipe_screen *pscreen,
+    if (format == PIPE_FORMAT_NV12 || format == PIPE_FORMAT_P010)
+       return false;
+ 
++   if ((bind & PIPE_BIND_DISPLAY_TARGET) && util_format_get_blocksizebits(format) < 32)
++      return false;
++
+    /* always use superset to determine feature support */
+    VkFormat vkformat = zink_get_format(screen, format == PIPE_FORMAT_A8_UNORM ? zink_format_get_emulated_alpha(format) : format);
+    if (vkformat == VK_FORMAT_UNDEFINED)
+diff --git a/src/kosmickrisp/vulkan/kk_image.c b/src/kosmickrisp/vulkan/kk_image.c
+index dd4ad75..cbe382f 100644
+--- a/src/kosmickrisp/vulkan/kk_image.c
++++ b/src/kosmickrisp/vulkan/kk_image.c
+@@ -716,16 +716,10 @@ kk_get_image_memory_requirements(struct kk_device *dev, struct kk_image *image,
+    struct kk_physical_device *pdev = kk_device_physical(dev);
+    uint32_t memory_types = (1 << pdev->mem_type_count) - 1;
+ 
+-   /* Remove non host visible heaps from the types for host image copy in case
+-    * of potential issues. This should be removed when we get ReBAR.
++   /* On Apple Silicon unified memory, all heaps are host-accessible; do not
++    * strip non-HOST_VISIBLE memory types so Venus/vkr can back optimal images
++    * with MTLHeap (memory type 0) while reserving HOST_VISIBLE for shm blobs.
+     */
+-   if (image->vk.usage & VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT) {
+-      for (uint32_t i = 0; i < pdev->mem_type_count; i++) {
+-         if (!(pdev->mem_types[i].propertyFlags &
+-               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))
+-            memory_types &= ~BITFIELD_BIT(i);
+-      }
+-   }
+ 
+    // TODO hope for the best?
+ 
+diff --git a/src/kosmickrisp/vulkan/kk_image_view.c b/src/kosmickrisp/vulkan/kk_image_view.c
+index d878258..81dd61f 100644
+--- a/src/kosmickrisp/vulkan/kk_image_view.c
++++ b/src/kosmickrisp/vulkan/kk_image_view.c
+@@ -17,6 +17,7 @@
+ #include "kosmickrisp/bridge/mtl_format.h"
+ 
+ #include "vk_format.h"
++#include "util/u_debug.h"
+ 
+ static enum pipe_swizzle
+ vk_swizzle_to_pipe(VkComponentSwizzle swizzle)
+@@ -149,6 +150,20 @@ kk_image_view_init(struct kk_device *dev, struct kk_image_view *view,
+ 
+       mtl_texture *mtl_handle = image->planes[image_plane].mtl_handle;
+ 
++      if (debug_get_bool_option("KK_CLAMP_VIEW_MISMATCH", true) &&
++          !util_format_is_compressed(plane->layout.format.pipe) &&
++          util_format_get_blocksizebits(plane->layout.format.pipe) !=
++             util_format_get_blocksizebits(view_layout.format.pipe)) {
++         fprintf(stderr,
++                 "KK_VIEW_MISMATCH: img_vk=%d (%s, mtl=%d) view_vk=%d (%s, mtl=%d) usage=0x%llx\n",
++                 image->vk.format, util_format_name(plane->layout.format.pipe),
++                 plane->layout.format.mtl, view->vk.format,
++                 util_format_name(view_layout.format.pipe),
++                 view_layout.format.mtl, (unsigned long long)view->vk.usage);
++         view_layout.format.pipe = plane->layout.format.pipe;
++         view_layout.format.mtl = plane->layout.format.mtl;
++      }
++
+       /* Block texel view requires subresource aliasing. We do it here to avoid
+        * having to create a texture for every possible subresource up-front */
+       if (util_format_is_compressed(plane->layout.format.pipe) &&
+diff --git a/src/kosmickrisp/vulkan/kk_physical_device.c b/src/kosmickrisp/vulkan/kk_physical_device.c
+index a0b882c..c7c439b 100644
+--- a/src/kosmickrisp/vulkan/kk_physical_device.c
++++ b/src/kosmickrisp/vulkan/kk_physical_device.c
+@@ -20,6 +20,7 @@
+ #include "kosmickrisp/compiler/nir_to_msl.h"
+ 
+ #include "util/disk_cache.h"
++#include "util/u_debug.h"
+ #include "util/mesa-blake3.h"
+ #include "git_sha1.h"
+ 
+@@ -171,10 +172,10 @@ kk_get_device_extensions(const struct kk_instance *instance,
+       .EXT_attachment_feedback_loop_layout = true,
+       .EXT_attachment_feedback_loop_dynamic_state = true,
+       .EXT_blend_operation_advanced = true,
+-      .EXT_border_color_swizzle = KK_EXPERIMENTAL(CUSTOM_BORDER),
++      .EXT_border_color_swizzle = true,
+       .EXT_calibrated_timestamps = true,
+       .EXT_conditional_rendering = true,
+-      .EXT_custom_border_color = KK_EXPERIMENTAL(CUSTOM_BORDER),
++      .EXT_custom_border_color = true,
+       .EXT_custom_resolve = true,
+       .EXT_debug_marker = true,
+       .EXT_depth_clip_control = true,
+@@ -346,6 +347,7 @@ kk_get_device_features(
+ 
+       /* Vulkan 1.4 */
+       .bresenhamLines = true,
++      .smoothLines = debug_get_bool_option("KK_SPOOF_SMOOTH_LINES", true),
+       .dynamicRenderingLocalRead = true,
+       .globalPriorityQuery = true,
+       .hostImageCopy = true,
+@@ -985,6 +987,19 @@ kk_physical_device_init_pipeline_cache(struct kk_physical_device *pdev)
+    memcpy(pdev->vk.properties.shaderBinaryUUID, blake3, VK_UUID_SIZE);
+ }
+ 
++static void
++kk_physical_device_init_disk_cache(struct kk_physical_device *pdev)
++{
++#ifdef ENABLE_SHADER_CACHE
++   struct kk_instance *instance = kk_physical_device_instance(pdev);
++   char timestamp[BLAKE3_HEX_LEN];
++   _mesa_blake3_format(timestamp, instance->driver_build_sha);
++
++   pdev->vk.disk_cache =
++      disk_cache_create("kosmickrisp", timestamp, 0);
++#endif
++}
++
+ static void
+ kk_physical_device_free_disk_cache(struct kk_physical_device *pdev)
+ {
+@@ -1193,6 +1208,7 @@ kk_enumerate_physical_devices(struct vk_instance *_instance)
+       goto fail_mtl_dev;
+ 
+    kk_physical_device_init_pipeline_cache(pdev);
++   kk_physical_device_init_disk_cache(pdev);
+ 
+    uint64_t sysmem_size_B = kk_get_sysmem_heap_size(pdev);
+    if (sysmem_size_B == 0) {
+@@ -1209,6 +1225,11 @@ kk_enumerate_physical_devices(struct vk_instance *_instance)
+       .used = kk_get_sysmem_heap_used,
+    };
+ 
++   pdev->mem_types[pdev->mem_type_count++] = (VkMemoryType){
++      .propertyFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
++      .heapIndex = sysmem_heap_idx,
++   };
++
+    pdev->mem_types[pdev->mem_type_count++] = (VkMemoryType){
+       .propertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+@@ -1244,6 +1265,7 @@ kk_enumerate_physical_devices(struct vk_instance *_instance)
+    return VK_SUCCESS;
+ 
+ fail_disk_cache:
++   kk_physical_device_free_disk_cache(pdev);
+    vk_physical_device_finish(&pdev->vk);
+ fail_mtl_dev:
+    mtl_release(pdev->mtl_dev_handle);
+diff --git a/src/util/detect_arch.h b/src/util/detect_arch.h
+index e32de8d..410807b 100644
+--- a/src/util/detect_arch.h
++++ b/src/util/detect_arch.h
+@@ -58,9 +58,10 @@
+ #define DETECT_ARCH_X86 1
+ #endif
+ 
+-#if defined(__x86_64__) /* gcc */ || \
+-    ((defined(_M_X64) || defined(_M_AMD64)) && !defined(_M_ARM64EC)) /* msvc */ || \
+-    defined(__x86_64) /* Sun cc */
++#if (defined(__x86_64__) /* gcc */ || \
++     defined(_M_X64) || defined(_M_AMD64) /* msvc */ || \
++     defined(__x86_64) /* Sun cc */) && \
++    !defined(_M_ARM64EC) && !defined(__arm64ec__)
+ #define DETECT_ARCH_X86_64 1
+ #endif
+ 
+@@ -87,7 +88,7 @@
+ #define DETECT_ARCH_ARM 1
+ #endif
+ 
+-#if defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC)
++#if defined(__aarch64__) || defined(_M_ARM64) || defined(_M_ARM64EC) || defined(__arm64ec__)
+ #define DETECT_ARCH_AARCH64 1
+ #endif
+ 

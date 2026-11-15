@@ -1,0 +1,22 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Wine\Mac Driver]
+"RetinaMode"="y"
+
+[HKEY_CURRENT_USER\Control Panel\Desktop]
+"LogPixels"=dword:000000c0
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts]
+"LogPixels"=dword:000000c0
+
+[HKEY_CURRENT_USER\Software\SolidWorks\SOLIDWORKS 2024\Performance]
+"Software OpenGL"=dword:00000000
+"Use Performance Pipeline 2020"=dword:00000001
+"Use GPU Silhouette Edges"=dword:00000000
+"OpenGL MultiSample"=dword:00000003
+
+[HKEY_CURRENT_USER\Software\SolidWorks\SOLIDWORKS 2024\Performance\Graphics\Hardware\Gl2Shaders\Other\zink]
+"Workarounds"=dword:00032408
+
+[HKEY_CURRENT_USER\Software\SolidWorks\SOLIDWORKS 2024\Performance\Graphics\Hardware\Mesa\zink]
+"Workarounds"=dword:04000000

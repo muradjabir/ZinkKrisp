@@ -1,0 +1,7 @@
+dist/
+*.tar.gz
+mesa/
+mesa-install*/
+toolchain/
+.venv/
+.DS_Store

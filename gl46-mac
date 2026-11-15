@@ -1,0 +1,352 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat << 'EOF'
+ZinkKrisp (gl46-mac) — Drop-in ARM64EC Mesa Zink + ARM64 KosmicKrisp runtime tool
+
+Usage:
+  gl46-mac install --prefix <wine-prefix> [--profile cad-workstation|opengl-game] [--reg <file.reg>] [--wine-app <MetalSharp-Wine.app>]
+  gl46-mac wrap    --prefix <wine-prefix> --exe <path-to-exe> --name <App Name> [--profile cad-workstation|opengl-game] [--wine-app <MetalSharp-Wine.app>] [--out-dir </Applications>]
+  gl46-mac --help
+
+Commands:
+  install   Copy COFF-ARM64EC Zink DLLs (opengl32.dll, libgallium_wgl.dll, libz-1.dll) into
+            <prefix>/drive_c/windows/system32/, configure the KosmicKrisp Vulkan ICD JSON,
+            and optionally apply Retina/profile registry settings.
+  wrap      Generate a double-clickable macOS .app bundle in /Applications (or --out-dir)
+            that configures VK_DRIVER_FILES, FEX, and profile env vars for an .exe.
+
+Options:
+  --prefix <dir>      Target Wine prefix directory (required)
+  --profile <name>    Environment profile: cad-workstation (default for CAD) or opengl-game
+  --reg <file.reg>    Optional Windows .reg file to import during install
+  --exe <path>        Target Windows executable path (e.g. "C:\Program Files\App\App.exe")
+  --name <app name>   Display name for the generated macOS .app bundle
+  --wine-app <path>   Path to MetalSharp-Wine.app (auto-detected if omitted)
+  --out-dir <dir>     Output directory for the generated .app bundle (default: /Applications)
+EOF
+}
+
+find_wine_app() {
+    local explicit="${1:-}"
+    if [[ -n "$explicit" ]]; then
+        echo "$explicit"
+        return 0
+    fi
+    local candidates=(
+        "/Applications/MetalSharp-Wine.app"
+        "$HOME/Applications/MetalSharp-Wine.app"
+        "$SCRIPT_DIR/MetalSharp-Wine.app"
+        "$SCRIPT_DIR/../runtime/metalsharp-wine-arm64/MetalSharp-Wine.app"
+    )
+    local c
+    for c in "${candidates[@]}"; do
+        if [[ -x "$c/Contents/MacOS/wine" ]]; then
+            echo "$c"
+            return 0
+        fi
+    done
+    return 1
+}
+
+update_icd_json() {
+    local icd_json="$SCRIPT_DIR/lib-macos-arm64/kosmickrisp_mesa_icd.aarch64.json"
+    local dylib_path="$SCRIPT_DIR/lib-macos-arm64/libvulkan_kosmickrisp.dylib"
+    if [[ ! -f "$dylib_path" ]]; then
+        echo "ERROR: Missing KosmicKrisp library at: $dylib_path" >&2
+        exit 1
+    fi
+    cat > "$icd_json" << EOF
+{
+    "ICD": {
+        "api_version": "1.4.368",
+        "library_path": "$dylib_path"
+    },
+    "file_format_version": "1.0.1"
+}
+EOF
+}
+
+resolve_posix_exe() {
+    local prefix="$1"
+    local exe_arg="$2"
+    if [[ -f "$exe_arg" ]]; then
+        echo "$exe_arg"
+        return 0
+    fi
+    local normalized="${exe_arg//\\//}"
+    if [[ "$normalized" =~ ^[Cc]:/(.*)$ ]]; then
+        local candidate="$prefix/drive_c/${BASH_REMATCH[1]}"
+        if [[ -f "$candidate" ]]; then
+            echo "$candidate"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+extract_exe_icon() {
+    local exe_posix="$1"
+    local icns_out="$2"
+    command -v python3 >/dev/null 2>&1 || return 1
+    command -v sips >/dev/null 2>&1 || return 1
+    command -v iconutil >/dev/null 2>&1 || return 1
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    local png_path="$tmp_dir/icon.png"
+    local iconset_dir="$tmp_dir/icon.iconset"
+
+    if ! python3 - "$exe_posix" "$png_path" << 'PYEOF'
+import re, sys
+exe_path, out_path = sys.argv[1], sys.argv[2]
+data = open(exe_path, "rb").read()
+pngs = []
+for m in re.finditer(b"\x89PNG\r\n\x1a\n", data):
+    end = data.find(b"IEND\xaeB`\x82", m.start())
+    if end != -1 and (end - m.start()) < 1024 * 1024:
+        pngs.append(data[m.start():end + 8])
+if not pngs:
+    sys.exit(1)
+best = max(pngs, key=len)
+open(out_path, "wb").write(best)
+PYEOF
+    then
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+
+    mkdir -p "$iconset_dir"
+    sips -z 16 16     "$png_path" --out "$iconset_dir/icon_16x16.png" >/dev/null 2>&1 || true
+    sips -z 32 32     "$png_path" --out "$iconset_dir/icon_16x16@2x.png" >/dev/null 2>&1 || true
+    sips -z 32 32     "$png_path" --out "$iconset_dir/icon_32x32.png" >/dev/null 2>&1 || true
+    sips -z 64 64     "$png_path" --out "$iconset_dir/icon_32x32@2x.png" >/dev/null 2>&1 || true
+    sips -z 128 128   "$png_path" --out "$iconset_dir/icon_128x128.png" >/dev/null 2>&1 || true
+    sips -z 256 256   "$png_path" --out "$iconset_dir/icon_128x128@2x.png" >/dev/null 2>&1 || true
+    sips -z 256 256   "$png_path" --out "$iconset_dir/icon_256x256.png" >/dev/null 2>&1 || true
+    cp "$png_path" "$iconset_dir/icon_256x256@2x.png" >/dev/null 2>&1 || true
+
+    local rc=1
+    if iconutil -c icns "$iconset_dir" -o "$icns_out" >/dev/null 2>&1; then
+        rc=0
+    fi
+    rm -rf "$tmp_dir"
+    return $rc
+}
+
+cmd_install() {
+    local prefix=""
+    local profile=""
+    local reg_file=""
+    local wine_app=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --prefix)   prefix="${2:-}"; shift 2 ;;
+            --profile)  profile="${2:-}"; shift 2 ;;
+            --reg)      reg_file="${2:-}"; shift 2 ;;
+            --wine-app) wine_app="${2:-}"; shift 2 ;;
+            -h|--help)  usage; exit 0 ;;
+            *)          echo "Unknown option for install: $1" >&2; exit 1 ;;
+        esac
+    done
+
+    if [[ -z "$prefix" ]]; then
+        echo "ERROR: --prefix <wine-prefix> is required" >&2
+        exit 1
+    fi
+
+    local dll_src="$SCRIPT_DIR/bin-win64-arm64ec"
+    local sys32="$prefix/drive_c/windows/system32"
+    if [[ ! -d "$dll_src" ]]; then
+        echo "ERROR: Missing ARM64EC DLL directory: $dll_src" >&2
+        exit 1
+    fi
+    if [[ ! -d "$sys32" ]]; then
+        echo "ERROR: Wine prefix system32 not found at: $sys32" >&2
+        echo "Initialize your prefix first with MetalSharp-Wine.app (wineboot -u)." >&2
+        exit 1
+    fi
+
+    echo "Installing COFF-ARM64EC Zink DLLs into $sys32 ..."
+    cp -f "$dll_src/opengl32.dll" "$dll_src/libgallium_wgl.dll" "$dll_src/libz-1.dll" "$sys32/"
+
+    update_icd_json
+    echo "Updated Vulkan ICD JSON: $SCRIPT_DIR/lib-macos-arm64/kosmickrisp_mesa_icd.aarch64.json"
+
+    if [[ "$profile" == "cad-workstation" || -n "$reg_file" ]]; then
+        local detected_wine=""
+        if detected_wine="$(find_wine_app "$wine_app")"; then
+            local wine_bin="$detected_wine/Contents/MacOS/wine"
+            if [[ "$profile" == "cad-workstation" ]]; then
+                echo "Configuring Wine Mac Driver RetinaMode=y and LogPixels=192 ..."
+                WINEPREFIX="$prefix" WINEDEBUG=-all "$wine_bin" reg add 'HKCU\Software\Wine\Mac Driver' /v RetinaMode /t REG_SZ /d y /f >/dev/null
+                WINEPREFIX="$prefix" WINEDEBUG=-all "$wine_bin" reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d 192 /f >/dev/null
+                WINEPREFIX="$prefix" WINEDEBUG=-all "$wine_bin" reg add 'HKCU\Software\Wine\Fonts' /v LogPixels /t REG_DWORD /d 192 /f >/dev/null
+            fi
+            if [[ -n "$reg_file" ]]; then
+                if [[ ! -f "$reg_file" ]]; then
+                    echo "ERROR: Registry file not found: $reg_file" >&2
+                    exit 1
+                fi
+                echo "Importing registry file: $reg_file ..."
+                WINEPREFIX="$prefix" WINEDEBUG=-all "$wine_bin" regedit /S "$reg_file"
+            fi
+        else
+            echo "WARNING: MetalSharp-Wine.app not found; skipping registry configuration." >&2
+            echo "Pass --wine-app /path/to/MetalSharp-Wine.app to apply Retina/registry settings." >&2
+        fi
+    fi
+
+    echo "Done. DLLs installed and KosmicKrisp ICD configured."
+}
+
+cmd_wrap() {
+    local prefix=""
+    local exe_path=""
+    local app_name=""
+    local profile="cad-workstation"
+    local wine_app=""
+    local out_dir="/Applications"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --prefix)   prefix="${2:-}"; shift 2 ;;
+            --exe)      exe_path="${2:-}"; shift 2 ;;
+            --name)     app_name="${2:-}"; shift 2 ;;
+            --profile)  profile="${2:-}"; shift 2 ;;
+            --wine-app) wine_app="${2:-}"; shift 2 ;;
+            --out-dir)  out_dir="${2:-}"; shift 2 ;;
+            -h|--help)  usage; exit 0 ;;
+            *)          echo "Unknown option for wrap: $1" >&2; exit 1 ;;
+        esac
+    done
+
+    if [[ -z "$prefix" || -z "$exe_path" || -z "$app_name" ]]; then
+        echo "ERROR: --prefix, --exe, and --name are required for wrap" >&2
+        exit 1
+    fi
+
+    prefix="$(cd "$prefix" && pwd)"
+
+    local profile_file="$SCRIPT_DIR/profiles/${profile}.env"
+    if [[ ! -f "$profile_file" ]]; then
+        echo "ERROR: Profile not found: $profile_file" >&2
+        exit 1
+    fi
+
+    local resolved_wine=""
+    if ! resolved_wine="$(find_wine_app "$wine_app")"; then
+        echo "ERROR: MetalSharp-Wine.app not found. Pass --wine-app /path/to/MetalSharp-Wine.app" >&2
+        exit 1
+    fi
+
+    update_icd_json
+    local icd_json="$SCRIPT_DIR/lib-macos-arm64/kosmickrisp_mesa_icd.aarch64.json"
+
+    local bundle_dir="$out_dir/${app_name}.app"
+    local contents_dir="$bundle_dir/Contents"
+    local macos_dir="$contents_dir/MacOS"
+    local res_dir="$contents_dir/Resources"
+    mkdir -p "$macos_dir" "$res_dir"
+
+    local bundle_id
+    bundle_id="com.zinkkrisp.$(echo "$app_name" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '-' | sed 's/^-//;s/-$//')"
+
+    local has_icon=false
+    local exe_posix=""
+    if exe_posix="$(resolve_posix_exe "$prefix" "$exe_path")"; then
+        if extract_exe_icon "$exe_posix" "$res_dir/AppIcon.icns"; then
+            has_icon=true
+            echo "Extracted app icon -> $res_dir/AppIcon.icns"
+        fi
+    fi
+
+    {
+        cat << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>launcher</string>
+EOF
+        if [[ "$has_icon" == "true" ]]; then
+            cat << EOF
+    <key>CFBundleIconFile</key>
+    <string>AppIcon.icns</string>
+EOF
+        fi
+        cat << EOF
+    <key>CFBundleIdentifier</key>
+    <string>$bundle_id</string>
+    <key>CFBundleName</key>
+    <string>$app_name</string>
+    <key>CFBundleDisplayName</key>
+    <string>$app_name</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+EOF
+    } > "$contents_dir/Info.plist"
+
+    local safe_name
+    safe_name="$(echo "$app_name" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '_')"
+    local wine_bin="$resolved_wine/Contents/MacOS/wine"
+
+    {
+        echo "#!/usr/bin/env bash"
+        echo "set -euo pipefail"
+        echo "export PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:\${PATH:-}\""
+        printf "export WINEPREFIX=%q\n" "$prefix"
+        printf "export VK_DRIVER_FILES=%q\n" "$icd_json"
+        printf "export VK_ICD_FILENAMES=%q\n" "$icd_json"
+        printf "PROFILE_FILE=%q\n" "$profile_file"
+        cat << 'EOF'
+if [[ -f "$PROFILE_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$PROFILE_FILE"
+fi
+if [[ "${ZINKKRISP_HUD:-${SWONMAC_HUD:-0}}" == "1" ]]; then
+    export MTL_HUD_ENABLED="${MTL_HUD_ENABLED:-1}"
+fi
+EOF
+        printf "WINE_BIN=%q\n" "$wine_bin"
+        printf "TARGET_EXE=%q\n" "$exe_path"
+        printf "LOG_FILE=\"\${TMPDIR:-/tmp}/zinkkrisp_%s.log\"\n" "$safe_name"
+        cat << 'EOF'
+exec "$WINE_BIN" "$TARGET_EXE" "$@" >"$LOG_FILE" 2>&1
+EOF
+    } > "$macos_dir/launcher"
+    chmod +x "$macos_dir/launcher"
+
+    local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    if [[ -x "$lsregister" ]]; then
+        "$lsregister" -f "$bundle_dir" >/dev/null 2>&1 || true
+    fi
+
+    echo "Created macOS app bundle: $bundle_dir"
+    echo "Logs will be written to: \${TMPDIR:-/tmp}/zinkkrisp_${safe_name}.log"
+}
+
+if [[ $# -eq 0 ]]; then
+    usage
+    exit 0
+fi
+
+case "$1" in
+    install) shift; cmd_install "$@" ;;
+    wrap)    shift; cmd_wrap "$@" ;;
+    -h|--help) usage; exit 0 ;;
+    *)       echo "Unknown command: $1" >&2; usage; exit 1 ;;
+esac

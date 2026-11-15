@@ -1,0 +1,100 @@
+name: Build ZinkKrisp Runtime
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-15
+    env:
+      LLVM_MINGW_VERSION: '20261104'
+      MESA_BRANCH: main
+    steps:
+      - name: Checkout ZinkKrisp
+        uses: actions/checkout@v4
+
+      - name: Install host build dependencies
+        run: |
+          brew install llvm bison meson ninja zstd spirv-tools glslang cmake pkg-config
+          python3 -m venv .venv
+          source .venv/bin/activate
+          pip install mako pyyaml
+
+      - name: Download llvm-mingw (universal macOS)
+        run: |
+          mkdir -p toolchain
+          curl -L -o llvm-mingw.tar.xz \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-macos-universal.tar.xz"
+          tar -xf llvm-mingw.tar.xz -C toolchain
+          rm llvm-mingw.tar.xz
+
+      - name: Clone & patch Mesa
+        run: |
+          git clone --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git mesa
+          git -C mesa apply "$GITHUB_WORKSPACE/patches/mesa_kosmickrisp_zink.patch"
+
+      - name: Build native arm64 KosmicKrisp Vulkan ICD
+        run: |
+          export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+          source .venv/bin/activate
+          meson setup mesa/build-macos-arm64 mesa \
+            --prefix="$GITHUB_WORKSPACE/mesa-install-arm64" \
+            -Dbuildtype=release \
+            -Dplatforms=macos \
+            -Dgallium-drivers= \
+            -Dvulkan-drivers=kosmickrisp \
+            -Dshader-cache=enabled \
+            -Dc_args="-mcpu=apple-m4 -O3" \
+            -Dcpp_args="-mcpu=apple-m4 -O3"
+          ninja -C mesa/build-macos-arm64 install
+
+      - name: Build COFF-ARM64EC Zink WGL DLLs
+        run: |
+          LLVM_MINGW_BIN="$(echo "$GITHUB_WORKSPACE"/toolchain/llvm-mingw-*/bin)"
+          export PATH="/opt/homebrew/opt/bison/bin:$LLVM_MINGW_BIN:$PATH"
+          source .venv/bin/activate
+          cat > arm64ec-cross.ini << EOF
+          [binaries]
+          c = '${LLVM_MINGW_BIN}/arm64ec-w64-mingw32-clang'
+          cpp = '${LLVM_MINGW_BIN}/arm64ec-w64-mingw32-clang++'
+          ar = '${LLVM_MINGW_BIN}/llvm-ar'
+          strip = '${LLVM_MINGW_BIN}/llvm-strip'
+          pkgconfig = 'false'
+
+          [host_machine]
+          system = 'windows'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+
+          [built-in options]
+          c_args = ['-O3', '-ffixed-x28']
+          cpp_args = ['-O3', '-ffixed-x28']
+          EOF
+          meson setup mesa/build-win64-arm64ec mesa \
+            --cross-file arm64ec-cross.ini \
+            --prefix="$GITHUB_WORKSPACE/mesa-install-win64-arm64ec" \
+            -Dbuildtype=release \
+            -Dplatforms=windows \
+            -Dgallium-drivers=zink \
+            -Dvulkan-drivers= \
+            -Dshader-cache=disabled \
+            -Dllvm=disabled \
+            -Dshared-glapi=enabled
+          ninja -C mesa/build-win64-arm64ec install
+
+      - name: Package drop-in tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME:-v0.1.0}" \
+          MESA_ARM64_DIR="$GITHUB_WORKSPACE/mesa-install-arm64" \
+          MESA_WIN64_DIR="$GITHUB_WORKSPACE/mesa-install-win64-arm64ec" \
+          ./scripts/package-release.sh
+
+      - name: Upload release artifact
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz
