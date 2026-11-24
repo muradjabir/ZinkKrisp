@@ -77,7 +77,7 @@ public final class UpdateChecker: ObservableObject {
            !ver.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return ver.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return "0.2.0"
+        return "0.2.1"
     }
 
     private init() {}
