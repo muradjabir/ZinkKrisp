@@ -975,24 +975,6 @@ public final class EngineManager: ObservableObject {
                     if fm.fileExists(atPath: zk32Dst.path) { try? fm.removeItem(at: zk32Dst) }
                     try? fm.copyItem(at: zk32Src, to: zk32Dst)
                 }
-
-                // Deploy 0-exit stub MicrosoftEdgeWebView2RuntimeInstallerX64.exe to sldim directory
-                let sldimDir = templateDriveC.appendingPathComponent("sldim", isDirectory: true)
-                try? fm.createDirectory(at: sldimDir, withIntermediateDirectories: true)
-                let stubSrc = bridgeSrcDir.appendingPathComponent("MicrosoftEdgeWebView2RuntimeInstallerX64.exe")
-                let stubDst = sldimDir.appendingPathComponent("MicrosoftEdgeWebView2RuntimeInstallerX64.exe")
-                if fm.fileExists(atPath: stubSrc.path) {
-                    if fm.fileExists(atPath: stubDst.path) { try? fm.removeItem(at: stubDst) }
-                    try? fm.copyItem(at: stubSrc, to: stubDst)
-                }
-
-                // auto_resize_daemon.exe -> windows/auto_resize_daemon.exe
-                let daemonSrc = bridgeSrcDir.appendingPathComponent("auto_resize_daemon.exe")
-                let daemonDst = templateDriveC.appendingPathComponent("windows/auto_resize_daemon.exe")
-                if fm.fileExists(atPath: daemonSrc.path) {
-                    if fm.fileExists(atPath: daemonDst.path) { try? fm.removeItem(at: daemonDst) }
-                    try? fm.copyItem(at: daemonSrc, to: daemonDst)
-                }
             }
 
             // 4. Apply workstation defaults registry on first init of TemplatePrefix
@@ -1646,7 +1628,7 @@ public final class EngineManager: ObservableObject {
                 }
 
                 // Sweep PendingFileRenameOperations every 3s for the first 3 minutes so chained
-                // installers (like setup.exe -> EdgeWebView2 -> sldIM.exe) never hit a reboot prompt
+                // installers (such as multi-stage setup wizards) never hit a reboot prompt
                 if elapsed < 180 && Date().timeIntervalSince(lastRebootSweep) >= 3.0 {
                     lastRebootSweep = Date()
                     await self.clearPendingRebootFlags(containerID: containerID, prefixURL: prefixURL, wineBin: wineBin, env: sweepEnv)
