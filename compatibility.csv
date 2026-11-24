@@ -1,0 +1,2 @@
+id,name,vendor,version,category,arch,graphics_api,status,profile_id,prerequisites,tested_hardware,tested_macos,last_tested,known_issues,notes
+solidworks-2024,SOLIDWORKS 2024,Dassault Systemes,2024 SP1.0,CAD,x86_64,OpenGL 4.6,silver,solidworks-2024,dotnet48;mscoree_shim;vcredist_2022_x64;vcredist_2022_x86,Apple M4,macOS 27.2.1,2026-11-24,Complex assemblies and some add-ins still under testing,Runs via Zink/KosmicKrisp OpenGL 4.6 with RealView AllowList enabled by built-in solidworks-2024 profile

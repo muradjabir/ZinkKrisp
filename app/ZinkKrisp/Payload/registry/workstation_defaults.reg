@@ -1,0 +1,35 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\Software\Wine\Mac Driver]
+"RetinaMode"="y"
+
+[HKEY_CURRENT_USER\Control Panel\Desktop]
+"LogPixels"=dword:000000c0
+
+[HKEY_CURRENT_USER\Software\Wine\Fonts]
+"LogPixels"=dword:000000c0
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]
+"Segoe UI"="Tahoma"
+
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\msedgewebview2.exe\DllOverrides]
+"winevulkan"=""
+"vulkan-1"=""
+
+[HKEY_CURRENT_USER\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}]
+"pv"="119.0.2151.97"
+"version"="119.0.2151.97"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}]
+"pv"="119.0.2151.97"
+"version"="119.0.2151.97"
+
+[HKEY_LOCAL_MACHINE\Software\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}]
+"pv"="119.0.2151.97"
+"version"="119.0.2151.97"
+
+[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
+"d3dcompiler_47"="native,builtin"
+"version"=-
+"WebView2Loader"=-
+

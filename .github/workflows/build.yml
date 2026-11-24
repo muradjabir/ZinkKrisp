@@ -18,7 +18,7 @@ jobs:
 
       - name: Install host build dependencies
         run: |
-          brew install llvm bison meson ninja zstd spirv-tools glslang cmake pkg-config
+          brew install llvm bison meson ninja zstd spirv-tools glslang cmake pkg-config mingw-w64
           python3 -m venv .venv
           source .venv/bin/activate
           pip install mako pyyaml
@@ -88,13 +88,27 @@ jobs:
 
       - name: Package drop-in tarball
         run: |
-          VERSION="${GITHUB_REF_NAME:-v0.1.0}" \
+          VERSION="${GITHUB_REF_NAME:-v0.2.0}" \
           MESA_ARM64_DIR="$GITHUB_WORKSPACE/mesa-install-arm64" \
           MESA_WIN64_DIR="$GITHUB_WORKSPACE/mesa-install-win64-arm64ec" \
           ./scripts/package-release.sh
+
+      - name: Build WebView2 & .NET Bridges (mingw-w64)
+        run: ./src/webview_bridge/build.sh
+
+      - name: Build ZinkKrisp.app (macOS arm64)
+        run: |
+          VERSION="${GITHUB_REF_NAME:-v0.2.0}"
+          MESA_ARM64_DIR="$GITHUB_WORKSPACE/mesa-install-arm64" \
+          MESA_WIN64_DIR="$GITHUB_WORKSPACE/mesa-install-win64-arm64ec" \
+          ./app/ZinkKrisp/build_app_bundle.sh
+          mkdir -p dist
+          ditto -c -k --keepParent app/ZinkKrisp/dist/ZinkKrisp.app "dist/ZinkKrisp-${VERSION}-macos-arm64.zip"
 
       - name: Upload release artifact
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tar.gz
+          files: |
+            dist/*.tar.gz
+            dist/*.zip

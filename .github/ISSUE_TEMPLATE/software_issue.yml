@@ -1,0 +1,90 @@
+name: Software Compatibility Issue
+description: Report a bug, crash, setup failure, or rendering issue for a specific Windows application in ZinkKrisp
+title: "[software-id] "
+labels:
+  - compatibility
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please look up the **Software ID** in `compatibility.csv` (for example, `solidworks-2024`) and replace `[software-id]` in the issue title above with it (e.g., `[solidworks-2024] Crash opening assembly`).
+  - type: input
+    id: software_id
+    attributes:
+      label: Software ID
+      description: Canonical ID from `compatibility.csv` (lowercase kebab-case, e.g., `solidworks-2024`). If unlisted, propose a slug like `appname-2025`.
+      placeholder: solidworks-2024
+    validations:
+      required: true
+  - type: input
+    id: software_version
+    attributes:
+      label: Software Version / Build
+      description: Exact version, service pack, or build number of the Windows application.
+      placeholder: 2024 SP1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: issue_stage
+    attributes:
+      label: Issue Stage
+      description: Where does the problem occur?
+      options:
+        - Installer / Setup
+        - Prerequisites
+        - Launch / Startup
+        - Graphics / Viewport / RealView
+        - Crash During Use
+        - Performance
+        - Add-ins / Licensing
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: chip
+    attributes:
+      label: Apple Silicon Chip
+      options:
+        - Apple M1
+        - Apple M1 Pro/Max/Ultra
+        - Apple M2
+        - Apple M2 Pro/Max/Ultra
+        - Apple M3
+        - Apple M3 Pro/Max/Ultra
+        - Apple M4
+        - Apple M4 Pro/Max/Ultra
+        - Other Apple Silicon
+    validations:
+      required: true
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS Version
+      description: Output of `sw_vers -productVersion` (e.g. `15.4`, `27.2.1`).
+      placeholder: 27.2.1
+    validations:
+      required: true
+  - type: input
+    id: zinkkrisp_version
+    attributes:
+      label: ZinkKrisp Version or Commit
+      description: App version or git commit SHA (optional).
+      placeholder: 0.1.0
+    validations:
+      required: false
+  - type: textarea
+    id: description
+    attributes:
+      label: Description & Steps to Reproduce
+      description: Describe what happened, what you expected, and how to reproduce it.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      description: Paste relevant Wine/ZinkKrisp terminal output, Windows crash logs, or drag screenshots here.
+      render: text
+    validations:
+      required: false

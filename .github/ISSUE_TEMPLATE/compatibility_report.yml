@@ -1,0 +1,122 @@
+name: Compatibility List Update / New Software Report
+description: Submit a new application entry or status update for `compatibility.csv`
+title: "[compat] "
+labels:
+  - compatibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to add a newly tested application to `compatibility.csv` or update an existing entry's status. Replace `[compat]` or append the software ID in the title (e.g., `[compat] solidworks-2024`).
+  - type: input
+    id: software_id
+    attributes:
+      label: Software ID
+      description: Existing ID from `compatibility.csv`, or a proposed lowercase kebab-case slug (`<software>-<major-version>`).
+      placeholder: solidworks-2024
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Software Name
+      placeholder: SOLIDWORKS 2024
+    validations:
+      required: true
+  - type: input
+    id: vendor
+    attributes:
+      label: Vendor
+      placeholder: Dassault Systemes
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / Service Pack
+      placeholder: 2024 SP1.0
+    validations:
+      required: true
+  - type: input
+    id: category
+    attributes:
+      label: Category
+      description: e.g. CAD, CAM, CAE, EDA, 3D, Utility
+      placeholder: CAD
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - x86_64
+        - x86
+        - arm64ec
+    validations:
+      required: true
+  - type: input
+    id: graphics_api
+    attributes:
+      label: Graphics API
+      placeholder: OpenGL 4.6
+    validations:
+      required: true
+  - type: dropdown
+    id: proposed_status
+    attributes:
+      label: Proposed Status
+      options:
+        - platinum
+        - gold
+        - silver
+        - bronze
+        - borked
+        - untested
+    validations:
+      required: true
+  - type: input
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Semicolon-separated list (e.g. `dotnet48;mscoree_shim;vcredist_2022_x64;vcredist_2022_x86`).
+      placeholder: dotnet48;mscoree_shim;vcredist_2022_x64;vcredist_2022_x86
+    validations:
+      required: false
+  - type: dropdown
+    id: chip
+    attributes:
+      label: Tested Apple Silicon Chip
+      options:
+        - Apple M1
+        - Apple M1 Pro/Max/Ultra
+        - Apple M2
+        - Apple M2 Pro/Max/Ultra
+        - Apple M3
+        - Apple M3 Pro/Max/Ultra
+        - Apple M4
+        - Apple M4 Pro/Max/Ultra
+        - Other Apple Silicon
+    validations:
+      required: true
+  - type: input
+    id: macos_version
+    attributes:
+      label: Tested macOS Version
+      placeholder: macOS 27.2.1
+    validations:
+      required: true
+  - type: textarea
+    id: known_issues
+    attributes:
+      label: Known Issues
+      description: Describe any broken features, crashes, or workarounds needed.
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Environment flags, DLL overrides, or setup tips.
+    validations:
+      required: false

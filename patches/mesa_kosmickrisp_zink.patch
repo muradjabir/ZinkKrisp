@@ -210,3 +210,77 @@ index e32de8d..410807b 100644
  #define DETECT_ARCH_AARCH64 1
  #endif
  
+diff --git a/src/vulkan/wsi/wsi_common_metal.c b/src/vulkan/wsi/wsi_common_metal.c
+index b1e3f2e..54d9159 100644
+--- a/src/vulkan/wsi/wsi_common_metal.c
++++ b/src/vulkan/wsi/wsi_common_metal.c
+@@ -602,6 +602,13 @@ wsi_metal_swapchain_acquire_next_image(struct wsi_swapchain *wsi_chain,
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
+    timespec_add(&end_time, &rel_timeout, &start_time);
+ 
++   uint32_t cur_width = 0u, cur_height = 0u;
++   wsi_metal_layer_size(chain->surface->pLayer, &cur_width, &cur_height);
++   if (cur_width > 0 && cur_height > 0 &&
++       (cur_width != chain->extent.width || cur_height != chain->extent.height)) {
++      return VK_ERROR_OUT_OF_DATE_KHR;
++   }
++
+    while (1) {
+       /* Try to acquire an drawable. Unfortunately we might block for up to 1 second. */
+       CAMetalDrawable *drawable = wsi_metal_layer_acquire_drawable(chain->surface->pLayer);
+diff --git a/src/vulkan/wsi/wsi_common_metal_layer.m b/src/vulkan/wsi/wsi_common_metal_layer.m
+index 6308d70..9bb11d6 100644
+--- a/src/vulkan/wsi/wsi_common_metal_layer.m
++++ b/src/vulkan/wsi/wsi_common_metal_layer.m
+@@ -10,12 +10,42 @@
+ 
+ #import <QuartzCore/CAMetalLayer.h>
+ #import <Metal/Metal.h>
++#import <Foundation/Foundation.h>
++#include <stdlib.h>
++
++static void
++sync_metal_layer_backing_scale(const CAMetalLayer *metal_layer)
++{
++   const char *sync_env = getenv("KK_SYNC_BACKING_SCALE");
++   if (sync_env && sync_env[0] == '0')
++      return;
++
++   @try {
++      id delegate = metal_layer.delegate;
++      if (!delegate && metal_layer.superlayer)
++         delegate = metal_layer.superlayer.delegate;
++
++      if (delegate && [delegate respondsToSelector:@selector(window)]) {
++         id win = [delegate valueForKey:@"window"];
++         if (win && [win respondsToSelector:@selector(backingScaleFactor)]) {
++            NSNumber *scaleNum = [win valueForKey:@"backingScaleFactor"];
++            CGFloat backingScale = [scaleNum doubleValue];
++            if (backingScale > 0.0 && metal_layer.contentsScale != backingScale) {
++               ((CAMetalLayer *)metal_layer).contentsScale = backingScale;
++            }
++         }
++      }
++   } @catch (NSException *ignored) {
++   }
++}
+ 
+ void
+ wsi_metal_layer_size(const CAMetalLayer *metal_layer,
+    uint32_t *width, uint32_t *height)
+ {
+    @autoreleasepool {
++      sync_metal_layer_backing_scale(metal_layer);
++
+       /* The reason why "drawableSize" is not being used here because it will
+        * only return non-zero values if there has actually been any kind of
+        * drawable allocated (acquired). Without this we also run into crashes
+@@ -163,6 +193,8 @@
+       if (metal_layer.device == nil)
+          metal_layer.device = metal_layer.preferredDevice;
+ 
++      sync_metal_layer_backing_scale(metal_layer);
++
+       /* So acquire timeout works */
+       metal_layer.allowsNextDrawableTimeout = YES;
+       metal_layer.framebufferOnly = framebuffer_only;

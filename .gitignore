@@ -5,3 +5,10 @@ mesa-install*/
 toolchain/
 .venv/
 .DS_Store
+*.dll
+*.exe
+*.dylib
+*.o
+*.res
+app/ZinkKrisp/.build/
+app/ZinkKrisp/dist/
