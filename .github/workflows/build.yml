@@ -21,7 +21,7 @@ jobs:
 
       - name: Install host build dependencies
         run: |
-          brew install llvm bison meson ninja zstd spirv-tools glslang cmake pkg-config mingw-w64
+          brew install llvm bison meson ninja zstd spirv-tools spirv-llvm-translator glslang cmake pkg-config mingw-w64
           python3 -m venv .venv
           source .venv/bin/activate
           pip install mako pyyaml packaging
