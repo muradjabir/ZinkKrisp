@@ -12,9 +12,13 @@ Windows Registry Editor Version 5.00
 [HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]
 "Segoe UI"="Tahoma"
 
+[HKEY_CURRENT_USER\Software\Wine\AppDefaults\msedgewebview2.exe]
+"Version"="win8"
+
 [HKEY_CURRENT_USER\Software\Wine\AppDefaults\msedgewebview2.exe\DllOverrides]
 "winevulkan"=""
 "vulkan-1"=""
+"opengl32"="builtin"
 
 [HKEY_CURRENT_USER\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}]
 "pv"="119.0.2151.97"
@@ -32,4 +36,13 @@ Windows Registry Editor Version 5.00
 "d3dcompiler_47"="native,builtin"
 "version"=-
 "WebView2Loader"=-
+
+[HKEY_LOCAL_MACHINE\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments]
+"*"="--remote-debugging-port=9222 --remote-allow-origins=* --no-sandbox --disable-gpu --disable-gpu-compositing --disable-direct-composition"
+
+[HKEY_LOCAL_MACHINE\Software\WOW6432Node\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments]
+"*"="--remote-debugging-port=9222 --remote-allow-origins=* --no-sandbox --disable-gpu --disable-gpu-compositing --disable-direct-composition"
+
+[HKEY_CURRENT_USER\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments]
+"*"="--remote-debugging-port=9222 --remote-allow-origins=* --no-sandbox --disable-gpu --disable-gpu-compositing --disable-direct-composition"
 

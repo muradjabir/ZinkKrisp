@@ -23,6 +23,12 @@ public enum PrerequisiteError: LocalizedError {
 public final class PrerequisiteManager {
     public static let shared = PrerequisiteManager()
 
+    /// Must stay under 520 bytes UTF-16LE (259 chars + NUL) because EmbeddedBrowserWebView.dll (>= v150)
+    /// queries AdditionalBrowserArguments with a fixed 520-byte stack buffer and silently ignores ERROR_MORE_DATA.
+    /// Combined with msedgewebview2.exe Version=win8 below, this avoids Chromium >= 140's
+    /// output_device_backing.cc DCompositionCreateDevice E_NOTIMPL crash under Wine.
+    public static let webView2AdditionalBrowserArguments: String = "--remote-debugging-port=9222 --remote-allow-origins=* --no-sandbox --disable-gpu --disable-gpu-compositing --disable-direct-composition"
+
     public let cacheDirURL: URL
 
     public static let descriptors: [PrerequisiteID: PrerequisiteDescriptor] = [
@@ -227,6 +233,11 @@ public final class PrerequisiteManager {
                 let deployed = try self.deployX64VCRedistDLLs(from: cachedInstaller, into: prefixURL)
                 self.registerNativeDllOverrides(deployed, in: prefixURL, wineBin: wineBin)
                 self.repair64BitOleAut32(in: prefixURL, wineBin: wineBin)
+            }.value
+        } else if id == .webview2 {
+            await progress("Applying WebView2 Group Policy settings...", 0.90)
+            await Task.detached(priority: .userInitiated) {
+                self.ensureWebView2Policy(in: prefixURL, wineBin: wineBin)
             }.value
         }
 
@@ -445,6 +456,48 @@ public final class PrerequisiteManager {
         }
         let tmpReg = FileManager.default.temporaryDirectory
             .appendingPathComponent("zk_oleaut32_\(UUID().uuidString).reg")
+        guard (try? regText.write(to: tmpReg, atomically: true, encoding: .utf8)) != nil else { return }
+        defer { try? FileManager.default.removeItem(at: tmpReg) }
+
+        var env = ProcessInfo.processInfo.environment
+        env["WINEPREFIX"] = prefixURL.path
+        env["WINEDEBUG"] = "-all"
+        _ = runWineCommand(wineBin: wineBin, args: ["regedit", "/S", tmpReg.path], env: env)
+    }
+
+    /// Edge WebView2 ignores WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS under elevated processes (such as Wine).
+    /// Setting the official WebView2 Group Policy keys ensures CDP and compatibility flags apply cleanly.
+    /// Setting msedgewebview2.exe Version=win8 + opengl32=builtin keeps Chromium >= 140 off DirectComposition/ARM64EC paths.
+    public func ensureWebView2Policy(in prefixURL: URL, wineBin: URL) {
+        let escapedArgs = Self.webView2AdditionalBrowserArguments
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let expectedEntry = "\"*\"=\"\(escapedArgs)\""
+        let sysRegURL = prefixURL.appendingPathComponent("system.reg")
+        let userRegURL = prefixURL.appendingPathComponent("user.reg")
+        if let sysData = try? Data(contentsOf: sysRegURL, options: .mappedIfSafe),
+           let userData = try? Data(contentsOf: userRegURL, options: .mappedIfSafe),
+           sysData.range(of: Data("Policies\\\\Microsoft\\\\Edge\\\\WebView2\\\\AdditionalBrowserArguments".utf8)) != nil,
+           sysData.range(of: Data(expectedEntry.utf8)) != nil,
+           userData.range(of: Data("AppDefaults\\\\msedgewebview2.exe".utf8)) != nil,
+           userData.range(of: Data("\"Version\"=\"win8\"".utf8)) != nil,
+           userData.range(of: Data("\"opengl32\"=\"builtin\"".utf8)) != nil {
+            return
+        }
+        let policyKeys = [
+            "HKEY_LOCAL_MACHINE\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments",
+            "HKEY_LOCAL_MACHINE\\Software\\WOW6432Node\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments",
+            "HKEY_CURRENT_USER\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments"
+        ]
+        var regText = "Windows Registry Editor Version 5.00\r\n\r\n"
+        for key in policyKeys {
+            regText += "[\(key)]\r\n\"*\"=\"\(escapedArgs)\"\r\n\r\n"
+        }
+        regText += "[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\msedgewebview2.exe]\r\n\"Version\"=\"win8\"\r\n\r\n"
+        regText += "[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\msedgewebview2.exe\\DllOverrides]\r\n\"winevulkan\"=\"\"\r\n\"vulkan-1\"=\"\"\r\n\"opengl32\"=\"builtin\"\r\n\r\n"
+
+        let tmpReg = FileManager.default.temporaryDirectory
+            .appendingPathComponent("zk_wv2_policy_\(UUID().uuidString).reg")
         guard (try? regText.write(to: tmpReg, atomically: true, encoding: .utf8)) != nil else { return }
         defer { try? FileManager.default.removeItem(at: tmpReg) }
 

@@ -91,7 +91,7 @@ jobs:
 
       - name: Package drop-in tarball
         run: |
-          VERSION="${GITHUB_REF_NAME:-v0.2.1}" \
+          VERSION="${GITHUB_REF_NAME:-v0.2.2}" \
           MESA_ARM64_DIR="$GITHUB_WORKSPACE/mesa-install-arm64" \
           MESA_WIN64_DIR="$GITHUB_WORKSPACE/mesa-install-win64-arm64ec" \
           ./scripts/package-release.sh
@@ -101,7 +101,7 @@ jobs:
 
       - name: Build ZinkKrisp.app (macOS arm64)
         run: |
-          VERSION="${GITHUB_REF_NAME:-v0.2.1}"
+          VERSION="${GITHUB_REF_NAME:-v0.2.2}"
           MESA_ARM64_DIR="$GITHUB_WORKSPACE/mesa-install-arm64" \
           MESA_WIN64_DIR="$GITHUB_WORKSPACE/mesa-install-win64-arm64ec" \
           ./app/ZinkKrisp/build_app_bundle.sh

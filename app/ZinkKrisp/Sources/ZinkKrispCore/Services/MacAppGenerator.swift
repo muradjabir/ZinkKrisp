@@ -157,7 +157,7 @@ public enum MacAppGenerator {
         export KK_CLAMP_VIEW_MISMATCH="1"
         export KK_SYNC_BACKING_SCALE="0"
         export MTL_HUD_ENABLED=\(app.showMetalHUD ? "\"1\"" : "\"0\"")
-        export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222 --remote-allow-origins=* --no-sandbox --in-process-gpu --disable-direct-composition --disable-features=RemoveRedirectionBitmap,DirectComposition,CalculateNativeWinOcclusion --edge-webview-disable-mojo-ipcz --disk-cache-size=1 --media-cache-size=1 --disable-gpu-shader-disk-cache --disable-application-cache --disable-background-networking --disable-component-update --disable-domain-reliability --disable-sync"
+        export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="\(PrerequisiteManager.webView2AdditionalBrowserArguments)"
         \(extraEnvExports)
         \(serviceStartupScript)
         if [[ -d \(shellQuote(exeDir)) ]]; then

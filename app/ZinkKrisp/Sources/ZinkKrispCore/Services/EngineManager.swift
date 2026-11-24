@@ -999,6 +999,11 @@ public final class EngineManager: ObservableObject {
                 }
             }
 
+            let tplURL = templatePrefixURL
+            await Task.detached(priority: .userInitiated) {
+                PrerequisiteManager.shared.ensureWebView2Policy(in: tplURL, wineBin: wineBin)
+            }.value
+
             isReady = true
             statusMessage = "OpenGL 4.6 -> Metal 4 Ready (Native ARM64)"
         } catch {
@@ -1033,7 +1038,7 @@ public final class EngineManager: ObservableObject {
         env["KK_CLAMP_VIEW_MISMATCH"] = "1"
         env["KK_SYNC_BACKING_SCALE"] = "0"
         env["MTL_HUD_ENABLED"] = (app?.showMetalHUD ?? false) ? "1" : "0"
-        env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = "--remote-debugging-port=9222 --remote-allow-origins=* --no-sandbox --in-process-gpu --disable-direct-composition --disable-features=RemoveRedirectionBitmap,DirectComposition,CalculateNativeWinOcclusion --edge-webview-disable-mojo-ipcz --disk-cache-size=1 --media-cache-size=1 --disable-gpu-shader-disk-cache --disable-application-cache --disable-background-networking --disable-component-update --disable-domain-reliability --disable-sync"
+        env["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = PrerequisiteManager.webView2AdditionalBrowserArguments
 
         var dllOverrides: [String: String] = ["opengl32": "n,b"]
         let resolvedProfile = profileOverride ?? app.flatMap { SoftwareProfileManager.shared.profile(for: $0) }
@@ -1457,6 +1462,9 @@ public final class EngineManager: ObservableObject {
                         state: .inProgress,
                         detail: "Running \(url.lastPathComponent)..."
                     )
+                    await Task.detached(priority: .userInitiated) {
+                        PrerequisiteManager.shared.ensureWebView2Policy(in: targetPrefix, wineBin: wineBin)
+                    }.value
                 }
 
                 startWebViewBridgeWatchdog(containerID: containerID, prefixURL: targetPrefix, wineBin: wineBin)
@@ -1885,6 +1893,10 @@ public final class EngineManager: ObservableObject {
                 state: .succeeded,
                 detail: "\(profileName) • Zink + KosmicKrisp active"
             )
+
+            await Task.detached(priority: .userInitiated) {
+                PrerequisiteManager.shared.ensureWebView2Policy(in: targetPrefix, wineBin: wineBin)
+            }.value
 
             updateLaunchStep(sessionID: session.id, stepID: execStep.id, state: .inProgress, detail: "Starting \(exeURL.lastPathComponent)...")
             let proc = Process()
