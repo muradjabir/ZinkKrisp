@@ -29,6 +29,7 @@ final class ZinkKrispAppDelegate: NSObject, NSApplicationDelegate {
 struct ZinkKrispApp: App {
     @NSApplicationDelegateAdaptor(ZinkKrispAppDelegate.self) private var appDelegate
     @StateObject private var engine = EngineManager.shared
+    @StateObject private var updateChecker = UpdateChecker.shared
     @State private var showLicenses = false
 
     var body: some Scene {
@@ -37,16 +38,39 @@ struct ZinkKrispApp: App {
                 .environmentObject(engine)
                 .frame(minWidth: 900, minHeight: 580)
                 .task {
-                    await engine.bootstrap()
+                    async let boot: Void = engine.bootstrap()
+                    async let updateCheck: Void = updateChecker.checkForUpdates(manual: false)
+                    _ = await (boot, updateCheck)
                 }
                 .sheet(isPresented: $showLicenses) {
                     LicensesSheet(licensesText: engine.thirdPartyLicensesText())
+                }
+                .sheet(item: $updateChecker.availableUpdate) { update in
+                    UpdatePromptSheet(checker: updateChecker, update: update)
+                }
+                .alert(
+                    "ZinkKrisp Updates",
+                    isPresented: Binding(
+                        get: { updateChecker.statusAlertMessage != nil },
+                        set: { if !$0 { updateChecker.statusAlertMessage = nil } }
+                    )
+                ) {
+                    Button("OK", role: .cancel) {
+                        updateChecker.statusAlertMessage = nil
+                    }
+                } message: {
+                    Text(updateChecker.statusAlertMessage ?? "")
                 }
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About ZinkKrisp & Licenses...") {
                     showLicenses = true
+                }
+                Button("Check for Updates...") {
+                    Task {
+                        await updateChecker.checkForUpdates(manual: true)
+                    }
                 }
             }
             CommandGroup(replacing: .help) {
