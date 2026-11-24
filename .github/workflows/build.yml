@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-macos-arm64:
     runs-on: macos-15
@@ -21,7 +24,7 @@ jobs:
           brew install llvm bison meson ninja zstd spirv-tools glslang cmake pkg-config mingw-w64
           python3 -m venv .venv
           source .venv/bin/activate
-          pip install mako pyyaml
+          pip install mako pyyaml packaging
 
       - name: Download llvm-mingw (universal macOS)
         run: |
